@@ -369,4 +369,3 @@
   Handsontable.hooks.add("afterInit", init);
   Handsontable.hooks.add("afterUpdateSettings", init);
 })(Handsontable);
-// just for travis new commit 0 
