@@ -146,6 +146,8 @@ class WalkontableTable {
       }
       if (!this.isWorkingOnClone()) {
         holder.parentNode.className += 'ht_master handsontable';
+        holder.parentNode.style.overflow = 'auto';
+        holder.style.overflow = 'visible';
       }
       holder.appendChild(hider);
     }
@@ -155,6 +157,7 @@ class WalkontableTable {
 
   alignOverlaysWithTrimmingContainer() {
     const trimmingElement = getTrimmingContainer(this.wtRootElement);
+    var _height;
 
     if (!this.isWorkingOnClone()) {
       this.holder.parentNode.style.position = 'relative';
@@ -164,8 +167,13 @@ class WalkontableTable {
         this.wtRootElement.style.overflow = 'visible';
       } else {
         this.holder.style.width = getStyle(trimmingElement, 'width');
-        this.holder.style.height = getStyle(trimmingElement, 'height');
-        this.holder.style.overflow = '';
+        _height = trimmingElement.style.height;
+        if (_height !== undefined && _height.length > 0 ) {
+          this.holder.style.height = _height;
+        } else {
+          this.holder.style.overflow = 'visible';
+          this.wtRootElement.style.overflow = 'visible';
+        }
       }
     }
   }

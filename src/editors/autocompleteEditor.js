@@ -8,7 +8,11 @@ import {
   getSelectionEndPosition,
   outerWidth,
   setCaretPosition,
-} from './../helpers/dom/element';
+  offset,
+  getScrollableElement,
+  resetCssTransform,
+  innerWidth,
+    } from './../helpers/dom/element';
 import {getEditorConstructor, registerEditor} from './../editors';
 import {HandsontableEditor} from './handsontableEditor';
 
@@ -25,6 +29,35 @@ AutocompleteEditor.prototype.init = function() {
 
   this.query = null;
   this.choices = [];
+};
+
+AutocompleteEditor.prototype.beginEditing = function(initialValue, event) {
+  if (this.state != Handsontable.EditorState.VIRGIN) {
+    return;
+  }
+  this.instance.view.scrollViewport(new WalkontableCellCoords(this.row, this.col));
+  this.instance.view.render();
+  this.state = Handsontable.EditorState.EDITING;
+  initialValue = typeof initialValue == 'string' ? initialValue : this.originalValue;
+  this.setValue(stringify(initialValue));
+
+  // not supported Promises :( so use callback
+  var that = this;
+  this._queryChoices(this.TEXTAREA.value, function(){
+    if (that.maxAvailableRows === undefined) {
+      that.calculateLimits();
+    }
+
+    if (that.needCalculateMaringUp === true) {
+      that.calculateMarginUp();
+      that.applyMarginUp();
+    }
+
+    that.open(event);
+    that._opened = true;
+    that.focus();
+    that.instance.view.render();
+  });
 };
 
 AutocompleteEditor.prototype.createElements = function() {
@@ -117,14 +150,129 @@ AutocompleteEditor.prototype.open = function() {
   }
 
   that.instance._registerTimeout(setTimeout(function() {
-    that.queryChoices(that.TEXTAREA.value);
+    if (that.TEXTAREA.value !== ''){
+      that.queryChoices(that.TEXTAREA.value, that.choices);
+    } else {
+      that.queryChoices(that.TEXTAREA.value);
+    }
+
   }, 0));
 };
 
-AutocompleteEditor.prototype.close = function() {
-  HandsontableEditor.prototype.close.apply(this, arguments);
+AutocompleteEditor.prototype.resetLimis = function() {
+  this.maxAvailableRows = undefined;
+  this.needCalculateMaringUp = false;
+  delete this.marginUp ;
 };
-AutocompleteEditor.prototype.queryChoices = function(query) {
+
+ 
+AutocompleteEditor.prototype.limitRows = function(availableHeigh, rowHeight) {
+  this.maxAvailableRows = Math.floor(availableHeigh/rowHeight);  
+};
+
+AutocompleteEditor.prototype.calculateLimits = function() {
+  var originRowToShow = this.cellProperties.visibleRows;
+  var topOffset = this.TD.offsetTop - this.instance.view.wt.wtOverlays.topOverlay.getScrollPosition();
+
+  var height = this.TD.scrollHeight + 1;
+  var windowHeigh = window.innerHeight;
+  var heightToBottom = windowHeigh - topOffset - height;  // -heigh - height of textarea
+  var heightToTop = topOffset;
+  
+  var maxAssumedHeigh = originRowToShow * height;
+  if (heightToBottom >= maxAssumedHeigh) {
+    //drow down
+    this.needCalculateMaringUp = false;
+  } else if (topOffset >=  maxAssumedHeigh) {
+    //draw up
+    this.needCalculateMaringUp = true;
+  } else if (heightToBottom === heightToTop) {
+    //draw down
+    // and limit
+    this.limitRows(heightToBottom, height);
+    this.needCalculateMaringUp = false;
+
+  } else {
+    if (heightToBottom > heightToTop) {
+      //draw down
+      // and limit
+      this.limitRows(heightToBottom, height);
+      this.needCalculateMaringUp = false;
+    } else {
+      //draw up
+      // and limit
+      this.limitRows(heightToTop, height);
+      this.needCalculateMaringUp = true;
+    }
+  }
+};
+
+AutocompleteEditor.prototype.calculateMarginUp = function() {
+  var rowsWillBeShowed = Math.min(this.choices.length, this.maxAvailableRows | this.cellProperties.visibleRows);
+  this.marginUp = - (rowsWillBeShowed + 1) * (this.TD.scrollHeight + 1) - 8;
+};
+
+AutocompleteEditor.prototype.applyMarginUp = function() {
+  var domNodePtr;
+  if (this.marginUp !== undefined) {
+    if (this.htEditor === undefined) { // htEditor not created yet, so use htContainer to set style
+      domNodePtr = this.htContainer;
+    } else {
+      domNodePtr = this.htEditor.rootElement;
+    }
+    domNodePtr.style.marginTop = this.marginUp + 'px';
+  }
+};
+
+AutocompleteEditor.prototype.clearMaring = function() {
+  this.htEditor.rootElement.style.marginTop = '';
+};
+
+AutocompleteEditor.prototype.close = function () {
+  HandsontableEditor.prototype.close.apply(this, arguments);
+  this.resetLimis();
+  this.clearMaring();
+};
+
+AutocompleteEditor.prototype._queryChoices = function(query, setChoiceLength) {
+  // to know length of choices list
+  this.query = query;
+
+  if (typeof this.cellProperties.source == 'function') {
+    var that = this;
+    this.cellProperties.source(query, function(choices) {
+      that.choices = choices;
+      setChoiceLength();
+    });
+  } else if (Array.isArray(this.cellProperties.source)) {
+    var choices;
+    if (!query || this.cellProperties.filter === false) {
+      choices = this.cellProperties.source;
+    } else {
+      var filteringCaseSensitive = this.cellProperties.filteringCaseSensitive === true;
+      var lowerCaseQuery = query.toLowerCase();
+      choices = this.cellProperties.source.filter(function(choice) {
+        if (filteringCaseSensitive) {
+          return choice.indexOf(query) != -1;
+        } else {
+          return choice.toLowerCase().indexOf(lowerCaseQuery) != -1;
+        }
+      });
+    }
+   this.choices = choices;
+   setChoiceLength();
+  } else {
+    this.choices = [];
+    setChoiceLength();
+  }
+};
+
+AutocompleteEditor.prototype.queryChoices = function(query, _choices) {
+  if (_choices !== undefined) {
+    this.updateChoicesList(_choices);
+    return;
+  }
+
   this.query = query;
 
   if (typeof this.cellProperties.source == 'function') {
@@ -185,9 +333,9 @@ AutocompleteEditor.prototype.updateChoicesList = function(choices) {
   /* jshint ignore:end */
 
   this.choices = choices;
+  this.updateDropdownHeight();
   this.htEditor.loadData(pivot([choices]));
 
-  this.updateDropdownHeight();
 
   if (this.cellProperties.strict === true) {
     this.highlightBestMatchingChoice(highlightIndex);
@@ -201,6 +349,16 @@ AutocompleteEditor.prototype.updateChoicesList = function(choices) {
 AutocompleteEditor.prototype.updateDropdownHeight = function() {
   var currentDropdownWidth = this.htEditor.getColWidth(0) + getScrollbarWidth() + 2;
   var trimDropdown = this.cellProperties.trimDropdown === void 0 ? true : this.cellProperties.trimDropdown;
+
+  if (this.maxAvailableRows === undefined) {
+    this.calculateLimits();
+  }
+
+  if (this.needCalculateMaringUp === true) {
+    this.calculateMarginUp();
+    this.applyMarginUp();
+  }
+
 
   this.htEditor.updateSettings({
     height: this.getDropdownHeight(),
@@ -301,10 +459,9 @@ AutocompleteEditor.sortByRelevance = function(value, choices, caseSensitive) {
 };
 
 AutocompleteEditor.prototype.getDropdownHeight = function() {
-  var firstRowHeight = this.htEditor.getInstance().getRowHeight(0) || 23;
-  var _visibleRows = this.cellProperties.visibleRows;
-
-  return this.choices.length >= _visibleRows ? _visibleRows * firstRowHeight : this.choices.length * firstRowHeight + 8;
+  var height = this.TD.scrollHeight;
+  var __rows = this.maxAvailableRows | this.cellProperties.visibleRows;
+  return this.choices.length >= __rows ? __rows * height : this.choices.length * height + 8;
 };
 
 AutocompleteEditor.prototype.allowKeyEventPropagation = function(keyCode) {

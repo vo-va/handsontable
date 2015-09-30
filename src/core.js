@@ -1530,7 +1530,7 @@ Handsontable.Core = function Core(rootElement, userSettings) {
 //        instance.rootElement.addClass(settings.className);
       }
     }
-
+    var htMaster = instance.rootElement.childNodes[0];
     if (typeof settings.height != 'undefined') {
       var height = settings.height;
 
@@ -1538,7 +1538,11 @@ Handsontable.Core = function Core(rootElement, userSettings) {
         height = height();
       }
 
-      instance.rootElement.style.height = height + 'px';
+      if (height > 0) {
+        instance.rootElement.style.height = height + 'px';
+        htMaster.style.height = height + 'px';
+      }
+      htMaster.style.overflow = 'auto';
     }
 
     if (typeof settings.width != 'undefined') {
@@ -1550,12 +1554,6 @@ Handsontable.Core = function Core(rootElement, userSettings) {
 
       instance.rootElement.style.width = width + 'px';
     }
-
-    /* jshint ignore:start */
-    if (height) {
-      instance.rootElement.style.overflow = 'hidden';
-    }
-    /* jshint ignore:end */
 
     if (!init) {
       Handsontable.hooks.run(instance, 'afterUpdateSettings');
